@@ -76,12 +76,11 @@ def load_and_preprocess_image(file_path):
     image = image / 255.0  # Normalize to [0, 1]
     return image
 
-# Function to load and preprocess a mask
 def load_and_preprocess_mask(file_path):
     mask = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
     mask = cv2.resize(mask, (256, 256))
     mask = mask / 255.0  # Normalize to [0, 1]
-    return mask
+    return mask[:, :, np.newaxis]
 
 # Lists to store training data
 X_train = []
@@ -112,45 +111,48 @@ print("Y_train shape:", Y_train.shape)
 
 
 #################
-
-def psnr_loss(y_true, y_pred):
-    max_pixel_value = 1.0  # Assuming the pixel values are normalized between 0 and 1
-    mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
-    psnr = 20 * tf.math.log(max_pixel_value / tf.math.sqrt(mse))
-    return -psnr
  
 
 
 
-# class dice_loss(tf.keras.losses.Loss):
-#     def __init__(self, smooth=1e-6, gama=2):
-#         super(dice_loss, self).__init__()
-#         self.name = 'NDL'
-#         self.smooth = smooth
-#         self.gama = gama
+class DiceLoss(tf.keras.losses.Loss):
+    def __init__(self, smooth=1e-6, gama=2):
+        super(DiceLoss, self).__init__()
+        self.name = 'NDL'
+        self.smooth = smooth
+        self.gama = gama
 
-#     def call(self, y_true, y_pred):
-#         y_true, y_pred = tf.cast(
-#             y_true, dtype=tf.float32), tf.cast(y_pred, tf.float32)
-#         nominator = 2 * \
-#             tf.reduce_sum(tf.multiply(y_pred, y_true)) + self.smooth
-#         denominator = tf.reduce_sum(
-#             y_pred ** self.gama) + tf.reduce_sum(y_true ** self.gama) + self.smooth
-#         result = 1 - tf.divide(nominator, denominator)
-#         return result
-    
+    def call(self, y_true, y_pred):
+        y_true, y_pred = tf.cast(
+            y_true, dtype=tf.float32), tf.cast(y_pred, tf.float32)
+        nominator = 2 * tf.reduce_sum(tf.multiply(y_pred, y_true)) + self.smooth
+        denominator = tf.reduce_sum(
+            y_pred ** self.gama) + tf.reduce_sum(y_true ** self.gama) + self.smooth
+        result = 1 - tf.divide(nominator, denominator)
+        return result
 
+def dice_loss_2d(Y_gt, Y_pred):
+    H, W = Y_gt.shape[1:]
+    smooth = 1e-5
 
-         
+    # Cast tensors to float32
+    Y_pred = tf.cast(Y_pred, dtype=tf.float32)
+    Y_gt = tf.cast(Y_gt, dtype=tf.float32)
 
+    pred_flat = tf.reshape(Y_pred, [-1, H * W])
+    true_flat = tf.reshape(Y_gt, [-1, H * W])
 
-# model = tf.keras.Model(inputs=[inputLayer], outputs=[outputs])
-# model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-# model.summary()
+    intersection = 2 * tf.reduce_sum(pred_flat * true_flat, axis=1) + smooth
+    denominator = tf.reduce_sum(
+        pred_flat, axis=1) + tf.reduce_sum(true_flat, axis=1) + smooth
+
+    loss = 1 - tf.reduce_mean(intersection / denominator)
+    return loss
+
 
 outputs = tf.keras.layers.Conv2D(1, (1, 1), activation='sigmoid')(c9)
 model = tf.keras.Model(inputs=[inputLayer], outputs=[outputs])
-model.compile(optimizer='adam', loss='mean_squared_error', metrics=['accuracy'])
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',tf.keras.metrics.Precision()])
 model.summary()
 
 checkpointer = tf.keras.callbacks.ModelCheckpoint('model.h5', verbose = 1)
@@ -159,7 +161,7 @@ callbacks = [
     tf.keras.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
     tf.keras.callbacks.TensorBoard(log_dir='dir')]
 
-result = model.fit(X_train, Y_train, validation_split=0.1, batch_size=32, epochs=20, callbacks=callbacks)
+# result = model.fit(X_train, Y_train, validation_split=0.1, batch_size=32, epochs=20, callbacks=callbacks)
 
 
 count = 1
@@ -229,8 +231,9 @@ cv2.imshow("Filled Image", filled_image)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
-model.save(r"C:\suraj\tests\unet\model.h5")
+model.save(r"C:\\suraj\\tests\\unet\\your_model.h5")
 
 # sess.graph contains the graph definition; that enables the Graph Visualizer.
 
-file_writer = tf.summary.FileWriter(r'C:\suraj\tests\unet\logs', session.graph)
+file_writer = tf.summary.FileWriter(r'C:\\suraj\\tests\\unet\\logs', session.graph)
+
